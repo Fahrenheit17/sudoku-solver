@@ -1,9 +1,13 @@
 # sudoku-solver
-Simple utility to solve sudoku puzzles in an instant
+Terminal and browser-based sudoku solver.
 
-Get a ready-to-run amd64 binary in Releases or compile yourself:
-  gcc -o sudoku sudoku.c -lncurses
+**Binary (C):** Get a ready-to-run amd64 Linux binary in Releases, or compile with:
+  `gcc -o sudoku sudoku.c -lncurses`
+  Requires ncurses (pre-installed on most Linux/macOS systems, or `apt install libncurses`).
 
-Depends on ncurses and nothing else you don't already have :)
+**Python:** `python3 sudoku.py` — no installs needed on macOS or Linux.
+  Windows: `pip install windows-curses` first.
+
+**JavaScript:** Open `sudoku.html` in any browser. No install, no dependencies.
 
 ![sudoku](https://github.com/user-attachments/assets/501eb412-9ffa-4ed9-92f3-e8b7590c128c)
