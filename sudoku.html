@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sudoku Solver</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&display=swap');
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:        #0e0e0e;
+    --surface:   #161616;
+    --border:    #2a2a2a;
+    --border-box:#444;
+    --fg:        #d4d4d4;
+    --user:      #6ab0f5;
+    --solved:    #c8c8c8;
+    --invalid:   #f5a623;
+    --cursor-bg: #1e3a5f;
+    --cursor-border: #6ab0f5;
+    --font: 'IBM Plex Mono', monospace;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--font);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    padding: 2rem;
+    user-select: none;
+  }
+
+  h1 {
+    font-size: 0.85rem;
+    font-weight: 600;
+    letter-spacing: 0.25em;
+    text-transform: uppercase;
+    color: #555;
+    margin-bottom: 1.5rem;
+  }
+
+  #grid {
+    display: grid;
+    grid-template-columns: repeat(9, min(10vw, 50px));
+    grid-template-rows:    repeat(9, min(10vw, 50px));
+    border: 2px solid var(--border-box);
+    outline: none;
+  }
+
+  .cell {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: clamp(12px, 3vw, 20px);
+    font-weight: 600;
+    border: 1px solid var(--border);
+    cursor: pointer;
+    transition: background 0.08s;
+    color: var(--solved);
+  }
+
+  .cell:nth-child(3n):not(:nth-child(9n))  { border-right: 2px solid var(--border-box); }
+  .cell:nth-child(n+19):nth-child(-n+27)   { border-bottom: 2px solid var(--border-box); }
+  .cell:nth-child(n+46):nth-child(-n+54)   { border-bottom: 2px solid var(--border-box); }
+
+  .cell.user    { color: var(--user); }
+  .cell.invalid { color: var(--invalid); }
+  .cell.cursor  { background: var(--cursor-bg); outline: 2px solid var(--cursor-border); outline-offset: -2px; }
+
+  #status {
+    margin-top: 1.25rem;
+    font-size: 0.78rem;
+    letter-spacing: 0.05em;
+    height: 1.4em;
+    color: #666;
+  }
+  #status.warn  { color: var(--invalid); }
+  #status.ok    { color: #6fcf97; }
+
+  #controls {
+    margin-top: 1rem;
+    display: flex;
+    gap: 0.75rem;
+  }
+
+  button {
+    font-family: var(--font);
+    font-size: 0.75rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 0.45rem 1rem;
+    background: var(--surface);
+    color: #888;
+    border: 1px solid var(--border);
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s;
+  }
+  button:hover { color: var(--fg); border-color: #555; }
+  button:active { background: #1a1a1a; }
+
+  #note {
+    margin-top: 0.75rem;
+    font-size: 0.7rem;
+    color: #444;
+    height: 1.2em;
+  }
+  #note.visible { color: var(--invalid); }
+</style>
+</head>
+<body>
+
+<h1>Sudoku Solver</h1>
+<div id="grid" tabindex="0"></div>
+<div id="status"></div>
+<div id="note"></div>
+<div id="controls">
+  <button id="btn-solve">Solve</button>
+  <button id="btn-clear">Clear</button>
+</div>
+
+<script>
+const GRID_SIZE = 9;
+
+let grid      = Array.from({length: GRID_SIZE}, () => Array(GRID_SIZE).fill(0));
+let userGrid  = Array.from({length: GRID_SIZE}, () => Array(GRID_SIZE).fill(0));
+let cursorRow = 0, cursorCol = 0;
+let solved    = false;
+
+const gridEl  = document.getElementById('grid');
+const statusEl = document.getElementById('status');
+const noteEl  = document.getElementById('note');
+const cells   = [];
+
+// Build DOM cells
+for (let i = 0; i < GRID_SIZE * GRID_SIZE; i++) {
+  const cell = document.createElement('div');
+  cell.className = 'cell';
+  const r = Math.floor(i / GRID_SIZE), c = i % GRID_SIZE;
+  cell.addEventListener('mousedown', () => { cursorRow = r; cursorCol = c; render(); });
+  gridEl.appendChild(cell);
+  cells.push(cell);
+}
+
+function render() {
+  for (let r = 0; r < GRID_SIZE; r++) {
+    for (let c = 0; c < GRID_SIZE; c++) {
+      const cell = cells[r * GRID_SIZE + c];
+      cell.textContent = grid[r][c] || '';
+      cell.className = 'cell';
+      if (r === cursorRow && c === cursorCol) cell.classList.add('cursor');
+      if (userGrid[r][c] === 2) cell.classList.add('invalid');
+      else if (userGrid[r][c] === 1) cell.classList.add('user');
+    }
+  }
+}
+
+function setStatus(msg, type = '') {
+  statusEl.textContent = msg;
+  statusEl.className = type;
+}
+
+function setNote(msg) {
+  noteEl.textContent = msg;
+  noteEl.className = msg ? 'visible' : '';
+}
+
+function countFilled() {
+  return grid.flat().filter(v => v !== 0).length;
+}
+
+function clearSolutionCells() {
+  for (let r = 0; r < GRID_SIZE; r++)
+    for (let c = 0; c < GRID_SIZE; c++)
+      if (userGrid[r][c] === 0) grid[r][c] = 0;
+  solved = false;
+}
+
+function advanceCursor() {
+  if (cursorCol === GRID_SIZE - 1) {
+    cursorCol = 0;
+    if (cursorRow < GRID_SIZE - 1) cursorRow++;
+  } else {
+    cursorCol++;
+  }
+}
+
+function isValid(row, col, num, g) {
+  for (let x = 0; x < GRID_SIZE; x++) {
+    if (g[row][x] === num || g[x][col] === num) return false;
+  }
+  const brs = row - row % 3, bcs = col - col % 3;
+  for (let i = 0; i < 3; i++)
+    for (let j = 0; j < 3; j++)
+      if (g[brs+i][bcs+j] === num) return false;
+  return true;
+}
+
+function isValidFullGrid() {
+  // Reset stale invalid marks
+  for (let r = 0; r < GRID_SIZE; r++)
+    for (let c = 0; c < GRID_SIZE; c++)
+      if (userGrid[r][c] === 2) userGrid[r][c] = 1;
+
+  let valid = true;
+  for (let row = 0; row < GRID_SIZE; row++) {
+    for (let col = 0; col < GRID_SIZE; col++) {
+      const val = grid[row][col];
+      if (!val) continue;
+      for (let i = 0; i < GRID_SIZE; i++) {
+        if (i !== col && grid[row][i] === val) { userGrid[row][i] = 2; userGrid[row][col] = 2; valid = false; }
+        if (i !== row && grid[i][col] === val) { userGrid[i][col] = 2; userGrid[row][col] = 2; valid = false; }
+      }
+      const brs = row - row % 3, bcs = col - col % 3;
+      for (let i = 0; i < 3; i++)
+        for (let j = 0; j < 3; j++) {
+          const r = brs+i, c = bcs+j;
+          if ((r !== row || c !== col) && grid[r][c] === val) { userGrid[r][c] = 2; userGrid[row][col] = 2; valid = false; }
+        }
+    }
+  }
+  return valid;
+}
+
+function solve(g) {
+  for (let row = 0; row < GRID_SIZE; row++) {
+    for (let col = 0; col < GRID_SIZE; col++) {
+      if (g[row][col] === 0) {
+        for (let num = 1; num <= GRID_SIZE; num++) {
+          if (isValid(row, col, num, g)) {
+            g[row][col] = num;
+            if (solve(g)) return true;
+            g[row][col] = 0;
+          }
+        }
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+function solveSudoku() {
+  setNote('');
+  if (!isValidFullGrid()) {
+    setStatus('Invalid grid.', 'warn');
+    render();
+    return;
+  }
+
+  const copy = grid.map(r => r.slice());
+  const t0 = performance.now();
+  const found = solve(copy);
+  const elapsed = (performance.now() - t0).toFixed(1);
+
+  if (found) {
+    for (let r = 0; r < GRID_SIZE; r++)
+      for (let c = 0; c < GRID_SIZE; c++)
+        grid[r][c] = copy[r][c];
+    solved = true;
+    setStatus(`Solved in ${elapsed}ms`, 'ok');
+    if (countFilled() < 17) setNote('Note: this solution may not be unique.');
+  } else {
+    setStatus('No solution exists.', 'warn');
+    setNote('Warning: unsolvable grid.');
+  }
+  render();
+}
+
+function clearGrid() {
+  for (let r = 0; r < GRID_SIZE; r++)
+    for (let c = 0; c < GRID_SIZE; c++) {
+      grid[r][c] = 0;
+      userGrid[r][c] = 0;
+    }
+  cursorRow = 0; cursorCol = 0;
+  solved = false;
+  setStatus(''); setNote('');
+  render();
+}
+
+document.getElementById('btn-solve').addEventListener('click', () => {
+  if (countFilled() === 0) { setStatus('Nothing to solve.', 'warn'); return; }
+  solveSudoku();
+  gridEl.focus();
+});
+
+document.getElementById('btn-clear').addEventListener('click', () => {
+  if (countFilled() === 0) { setStatus('Nothing to clear.', 'warn'); return; }
+  clearGrid();
+  gridEl.focus();
+});
+
+gridEl.addEventListener('keydown', e => {
+  const key = e.key;
+  setStatus(''); setNote('');
+
+  if (key >= '1' && key <= '9') {
+    const num = parseInt(key);
+    let dup = false;
+    if (!solved) {
+      for (let i = 0; i < GRID_SIZE; i++) {
+        if (i !== cursorCol && grid[cursorRow][i] === num && userGrid[cursorRow][i] === 1) { dup = true; break; }
+        if (i !== cursorRow && grid[i][cursorCol] === num && userGrid[i][cursorCol] === 1) { dup = true; break; }
+      }
+      if (!dup) {
+        const brs = cursorRow - cursorRow % 3, bcs = cursorCol - cursorCol % 3;
+        outer: for (let i = 0; i < 3; i++)
+          for (let j = 0; j < 3; j++) {
+            const r = brs+i, c = bcs+j;
+            if ((r !== cursorRow || c !== cursorCol) && grid[r][c] === num && userGrid[r][c] === 1) { dup = true; break outer; }
+          }
+      }
+    }
+    if (!dup) {
+      if (solved) clearSolutionCells();
+      grid[cursorRow][cursorCol] = num;
+      userGrid[cursorRow][cursorCol] = 1;
+      advanceCursor();
+    }
+
+  } else if (['0', '.', '-', '*', ' ', 'Delete'].includes(key)) {
+    e.preventDefault();
+    if (solved) clearSolutionCells();
+    grid[cursorRow][cursorCol] = 0;
+    userGrid[cursorRow][cursorCol] = 0;
+    advanceCursor();
+
+  } else if (key === 'ArrowRight' || key === 'Tab') {
+    e.preventDefault();
+    advanceCursor();
+
+  } else if (key === 'ArrowLeft') {
+    if (cursorCol === 0) { cursorCol = GRID_SIZE - 1; if (cursorRow > 0) cursorRow--; }
+    else cursorCol--;
+
+  } else if (key === 'ArrowUp') {
+    cursorRow = (cursorRow - 1 + GRID_SIZE) % GRID_SIZE;
+
+  } else if (key === 'ArrowDown') {
+    cursorRow = (cursorRow + 1) % GRID_SIZE;
+
+  } else if (key === 'Backspace') {
+    e.preventDefault();
+    if (cursorCol > 0) cursorCol--;
+    else if (cursorRow > 0) { cursorRow--; cursorCol = GRID_SIZE - 1; }
+    grid[cursorRow][cursorCol] = 0;
+    userGrid[cursorRow][cursorCol] = 0;
+
+  } else if (key === 's' || key === 'S') {
+    if (countFilled() === 0) { setStatus('Nothing to solve.', 'warn'); }
+    else solveSudoku();
+
+  } else if (key === 'c' || key === 'C') {
+    if (countFilled() === 0) { setStatus('Nothing to clear.', 'warn'); }
+    else clearGrid();
+
+  } else {
+    return;
+  }
+
+  render();
+});
+
+gridEl.focus();
+render();
+</script>
+</body>
+</html>
